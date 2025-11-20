@@ -14,6 +14,10 @@ return array(
 
         'hostname' => $_ENV["DATABASE_URL"],
         'port' => $_ENV["DATABASE_PORT"],
+        'driver_options' => array(
+        PDO::MYSQL_ATTR_SSL_CA => '/etc/ssl/certs/ca-certificates.crt',
+        PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false,
+        ),
     ),
     'mail' => array(
         'type' => $_ENV["MAIL_TYPE"], // 'sendmail', 'smtp' or 'smtp-tls'
@@ -44,3 +48,4 @@ return array(
         'locale' => 'en-GB',
     ),
 );
+
