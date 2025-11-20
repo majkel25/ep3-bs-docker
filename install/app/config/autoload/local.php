@@ -44,32 +44,22 @@ return array(
     ),
 
 
-    // ---------------------------------------------------------
-    // WHATSAPP / TWILIO CONFIGURATION
+     // ---------------------------------------------------------
+    // WHATSAPP / TWILIO CONFIGURATION (DIRECT MESSAGES ONLY)
     // ---------------------------------------------------------
     'whatsapp' => array(
-        'enabled' => true,
+        'enabled'  => true,
         'provider' => 'twilio',
 
         // Twilio credentials – REQUIRED
         'account_sid' => $_ENV["TWILIO_ACCOUNT_SID"],   // ACxxxxxxxxxxxx
         'auth_token'  => $_ENV["TWILIO_AUTH_TOKEN"],    // your Twilio Auth Token
 
-        // Twilio Messaging Service SID (recommended for WhatsApp)
+        // Twilio Messaging Service SID (recommended)
         'messaging_service_sid' => $_ENV["TWILIO_MESSAGING_SERVICE_SID"], // MGxxxxxxxxxxx
 
-        // Fallback sender (only used if Messaging Service is not applied)
+        // Fallback sender (used if Messaging Service is not applied)
         'from' => $_ENV["TWILIO_WHATSAPP_FROM"], // e.g. "whatsapp:+14155238886"
-
-        // WhatsApp group = list of numbers to broadcast to
-        'group_enabled' => true,
-        'group_numbers' => array(
-            // Add as many numbers as you want, format must be:
-            // "whatsapp:+447000000000"
-            $_ENV["TWILIO_GROUP_NUMBER_1"] ?? null,
-            $_ENV["TWILIO_GROUP_NUMBER_2"] ?? null,
-            // Add more as needed
-        ),
 
         'timeout' => 5,
     ),
@@ -92,3 +82,4 @@ return array(
         'locale' => 'en-GB',
     ),
 );
+
