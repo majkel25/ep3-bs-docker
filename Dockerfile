@@ -25,7 +25,6 @@ RUN cd /var/www/html/
 RUN composer update --ignore-platform-reqs
 RUN composer install --ignore-platform-reqs
 
-COPY install/app /var/www/html
 
 RUN chown -R www-data:www-data /var/www/html/*
 
