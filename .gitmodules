@@ -1,4 +1,4 @@
 [submodule "app"]
     path = app
-    url = https://github.com/majkel25/ep3-bs.git
+	url = https://github.com/majkel25/ep3-bs.git
 
