@@ -43,40 +43,66 @@ RUN curl -sS https://getcomposer.org/installer -o composer-setup.php \
     && rm composer-setup.php
 
 # -------------------------------------------------------------
-# Copy ep3-bs app from submodule
+# Copy ep3-bs app (submodule output)
 # -------------------------------------------------------------
 COPY app /var/www/html
 
 WORKDIR /var/www/html
 
-# Install PHP deps
+# Install PHP dependencies
 RUN composer install --no-dev --ignore-platform-reqs --optimize-autoloader
 
 # -------------------------------------------------------------
-# Overlay docker-specific files (init.php, .htaccess, etc.)
+# Apache Configuration
 # -------------------------------------------------------------
-COPY install/app /var/www/html
+# Enable required mods
+RUN a2enmod rewrite headers
+
+# Set DocumentRoot to /public
+ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+
+# Write full VirtualHost (correct and complete config)
+RUN printf '%s\n' \
+  '<VirtualHost *:80>' \
+  '    ServerAdmin webmaster@localhost' \
+  '    DocumentRoot /var/www/html/public' \
+  '    <Directory /var/www/html/public>' \
+  '        Options Indexes FollowSymLinks' \
+  '        AllowOverride All' \
+  '        Require all granted' \
+  '    </Directory>' \
+  '    ErrorLog ${APACHE_LOG_DIR}/error.log' \
+  '    CustomLog ${APACHE_LOG_DIR}/access.log combined' \
+  '</VirtualHost>' \
+  > /etc/apache2/sites-available/000-default.conf
 
 # -------------------------------------------------------------
-# Permissions
+# Ensure .htaccess exists (Zend requires front-controller routing)
 # -------------------------------------------------------------
-RUN chown -R www-data:www-data /var/www/html \
-    # make sure upload dirs exist (in case repo is empty there)
-    && mkdir -p \
-        /var/www/html/public/docs-client/upload \
-        /var/www/html/public/imgs-client/upload \
-    # give PHP write access
+RUN if [ ! -s public/.htaccess ]; then \
+    printf '%s\n' \
+'RewriteEngine On' \
+'RewriteCond %{REQUEST_FILENAME} -s [OR]' \
+'RewriteCond %{REQUEST_FILENAME} -l [OR]' \
+'RewriteCond %{REQUEST_FILENAME} -d' \
+'RewriteRule ^.*$ - [NC,L]' \
+'RewriteRule ^.*$ index.php [NC,L]' \
+    > public/.htaccess; \
+  fi
+
+# -------------------------------------------------------------
+# Permissions / Writable folders
+# -------------------------------------------------------------
+RUN mkdir -p \
+      /var/www/html/public/docs-client/upload \
+      /var/www/html/public/imgs-client/upload \
+    && chown -R www-data:www-data /var/www/html \
     && chmod -R u+w /var/www/html/data/cache/ \
     && chmod -R u+w /var/www/html/data/log/ \
     && chmod -R u+w /var/www/html/data/session/ \
     && chmod -R u+w /var/www/html/public/docs-client/upload/ \
     && chmod -R u+w /var/www/html/public/imgs-client/upload/
 
-# -------------------------------------------------------------
-# Apache document root and config
-# -------------------------------------------------------------
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+EXPOSE 80
 
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
-    && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' \
-       /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+CMD ["apache2-foreground"]
