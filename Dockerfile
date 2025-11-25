@@ -1,16 +1,28 @@
 FROM php:8.1-apache
 
-# Allow composer to run as root (inside container)
+# Allow composer as root
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
-# System packages needed by PHP extensions / composer
+# Install system dependencies
 RUN apt-get update -y \
-    && apt-get install --no-install-recommends -y libzip-dev libsodium-dev libicu-dev \
-    && apt-get install -y zlib1g-dev libxml2-dev \
-    && apt-get install -y git build-essential autoconf file pkg-config re2c python3 \
+    && apt-get install --no-install-recommends -y \
+        libzip-dev \
+        libsodium-dev \
+        libicu-dev \
+        zlib1g-dev \
+        libxml2-dev \
+        git \
+        unzip \
+        curl \
+        build-essential \
+        autoconf \
+        file \
+        pkg-config \
+        re2c \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
-# PHP extensions (as per your current image)
+# Install PHP extensions
 RUN pecl install xdebug && docker-php-ext-enable xdebug
 RUN docker-php-ext-install zip
 RUN docker-php-ext-configure intl && docker-php-ext-install intl
@@ -19,39 +31,34 @@ RUN docker-php-ext-configure sodium && docker-php-ext-install sodium
 RUN docker-php-ext-install soap
 RUN docker-php-ext-install pdo pdo_mysql
 
-# ---------------------------------------------------------
-# 1) Copy the main application (git submodule "app")
-# ---------------------------------------------------------
+# -------------------------------------------------------------
+# Install Composer
+# -------------------------------------------------------------
+RUN curl -sS https://getcomposer.org/installer -o composer-setup.php \
+    && php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+    && rm composer-setup.php
+
+# -------------------------------------------------------------
+# Copy main application from Git submodule
+# -------------------------------------------------------------
 COPY app /var/www/html
 
-# Run composer inside the app folder
 WORKDIR /var/www/html
 
-RUN composer update --ignore-platform-reqs \
-    && composer install --ignore-platform-reqs
+# Run composer inside container
+RUN composer install --no-dev --ignore-platform-reqs --optimize-autoloader
 
-# ---------------------------------------------------------
-# 2) Overlay the docker-specific app files
-#    (config/init.php, public/.htaccess, custom assets)
-# ---------------------------------------------------------
+# -------------------------------------------------------------
+# Overlay docker-specific files (init.php, .htaccess, etc.)
+# -------------------------------------------------------------
 COPY install/app /var/www/html
 
-# ---------------------------------------------------------
-# 3) Permissions and writable directories
-# ---------------------------------------------------------
-RUN chown -R www-data:www-data /var/www/html/*
-
-RUN cd /var/www/html \
+# -------------------------------------------------------------
+# Fix permissions
+# -------------------------------------------------------------
+RUN chown -R www-data:www-data /var/www/html/* \
     && chmod -R u+w /var/www/html/data/cache/ \
     && chmod -R u+w /var/www/html/data/log/ \
     && chmod -R u+w /var/www/html/data/session/ \
     && chmod -R u+w public/docs-client/upload/ \
-    && chmod -R u+w public/imgs-client/upload/
-
-# ---------------------------------------------------------
-# 4) Expose public/ as the web root for Apache
-# ---------------------------------------------------------
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+    && chmod -R u+w public/imgs-cli
