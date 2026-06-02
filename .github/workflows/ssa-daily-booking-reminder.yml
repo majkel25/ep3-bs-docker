@@ -1,0 +1,76 @@
+name: SSA Daily Booking Reminder
+
+# Fires at 07:00 UTC and 08:00 UTC every day.
+# 07:00 UTC = 08:00 UK time during BST (Mar–Oct).
+# 08:00 UTC = 08:00 UK time during GMT (Oct–Mar).
+# The backend script's Europe/London hour guard decides which run is active;
+# the other exits cleanly without sending. Booking-signature idempotency
+# prevents duplicate sends if both somehow pass during a DST transition.
+on:
+  schedule:
+    - cron: "0 7 * * *"
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (inspect only, no pushes sent)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      uid:
+        description: "Limit to one booking user id (leave blank for all users)"
+        required: false
+        default: ""
+      force:
+        description: "Bypass Europe/London 08:00 time guard (manual testing only)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  send-reminders:
+    name: Send daily booking push reminders
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Build request body
+        id: body
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          UID_INPUT="${{ github.event.inputs.uid || '' }}"
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+
+          BODY="{\"dryRun\":${DRY_RUN}"
+          if [ -n "$UID_INPUT" ] && [ "$UID_INPUT" != "" ]; then
+            BODY="${BODY},\"uid\":${UID_INPUT}"
+          fi
+          BODY="${BODY},\"force\":${FORCE}}"
+
+          echo "body=${BODY}" >> "$GITHUB_OUTPUT"
+
+      - name: POST to daily booking reminder endpoint
+        run: |
+          HTTP_STATUS=$(curl --silent --show-error --output response.json \
+            --write-out "%{http_code}" \
+            --max-time 60 \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "X-SSA-Cron-Secret: ${{ secrets.SSA_CRON_SECRET }}" \
+            --data '${{ steps.body.outputs.body }}' \
+            "https://ssabookings-api-development-iuenr.ondigitalocean.app/api/ssa/v1/run-daily-booking-reminders.php")
+
+          echo "HTTP status: ${HTTP_STATUS}"
+          echo "Response:"
+          cat response.json
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "ERROR: endpoint returned HTTP ${HTTP_STATUS}"
+            exit 1
+          fi

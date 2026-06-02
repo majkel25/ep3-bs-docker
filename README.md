@@ -87,15 +87,24 @@ The script writes a row to `ssa_push_notification_log` before sending. The uniqu
 
 Rule key: `daily_booking_reminders_8am`.
 
-#### DigitalOcean Scheduled Job
+#### GitHub Actions scheduled workflow
 
-##### Recommended schedule
+The reminder runs via a GitHub Actions cron workflow in this repository at `.github/workflows/ssa-daily-booking-reminder.yml`. It calls a protected HTTP endpoint on the existing DigitalOcean web service — no additional App Platform component or extra monthly cost is needed.
+
+##### Endpoint
 
 ```
-0 7,8 * * *
+POST /api/ssa/v1/run-daily-booking-reminders.php
 ```
 
-This fires at 07:00 UTC and 08:00 UTC every day:
+Authenticated by the `X-SSA-Cron-Secret` request header. The backend checks this against the `SSA_CRON_SECRET` environment variable using a constant-time comparison. Returns the same JSON summary as the CLI script.
+
+##### Schedule
+
+```
+0 7 * * *
+0 8 * * *
+```
 
 | UTC time | UK season | UK local time | Result |
 |----------|-----------|---------------|--------|
@@ -104,35 +113,31 @@ This fires at 07:00 UTC and 08:00 UTC every day:
 | 08:00 UTC | BST (Mar–Oct) | 09:00 BST | guard rejects, exits cleanly |
 | 08:00 UTC | GMT (Oct–Mar) | 08:00 GMT | guard passes, send runs |
 
-The script's internal Europe/London `hour === 08` guard is the source of truth. Idempotency prevents duplicate sends even if both runs somehow pass during a DST transition.
+The backend script's Europe/London `hour === 08` guard is the source of truth. Booking-signature idempotency prevents duplicate sends if both runs somehow pass during a DST transition.
 
-##### App Platform setup
+##### One-time setup
 
-Add a Scheduled Job component in the DigitalOcean App console:
+1. **DigitalOcean**: add `SSA_CRON_SECRET` to the App's environment variables. Use a long random secret (e.g. `openssl rand -hex 32`). Redeploy so the web service picks it up.
 
-| Field | Value |
-|-------|-------|
-| Name | `ssa-daily-booking-reminder` |
-| Run command | `php app/tools/ssa_daily_booking_reminder.php` |
-| Schedule | `0 7,8 * * *` |
-
-> **Path note:** the path `app/tools/...` assumes the working directory is the backend repo root. Adjust if DigitalOcean mounts the build at a different path — confirm against your web service's working directory.
-
-> **YAML note:** if configuring via `app.yaml`, use `kind: SCHEDULED` for scheduled jobs. Validate the spec with `doctl apps spec validate` before applying; DigitalOcean's App Platform spec evolves and the YAML format should be confirmed against the current documentation.
-
-The job inherits all env vars from the App, so no extra secret configuration is needed beyond what is already set for the web service.
+2. **GitHub**: go to `majkel25/ep3-bs-docker` → Settings → Secrets and variables → Actions → New repository secret. Name: `SSA_CRON_SECRET`. Value: the same secret as above.
 
 ##### Verifying a run
 
-- **App Platform logs**: filter by component `ssa-daily-booking-reminder`; each run records stdout, stderr, and exit code.
-- **Script stdout**: a successful send produces a JSON summary with `"sent": true`.
+- **GitHub**: Actions tab → `SSA Daily Booking Reminder` → select a run → view the `POST to daily booking reminder endpoint` step log. The response JSON and HTTP status are printed.
 - **Database**: query `ssa_push_notification_log` for recent rows with `rule_key = 'daily_booking_reminders_8am'`.
+
+##### Manual test run
+
+Trigger `workflow_dispatch` from the Actions tab. Optional inputs:
+- `dry_run: true` — inspect only, no pushes sent
+- `uid: 123` — limit to one user
+- `force: true` — bypass the time guard
 
 ##### Quick disable options
 
-1. **Pause or delete** the scheduled job component in the DigitalOcean App console and redeploy.
-2. **Change the schedule** to a non-firing expression (e.g. `0 3 31 2 *`) and redeploy.
-3. An optional env-var guard (`SSA_ENABLE_SCHEDULED_REMINDER`) could allow instant kill-switch via an env var without redeployment, but this is not yet implemented.
+1. **Disable the workflow** in the GitHub Actions tab (Actions → SSA Daily Booking Reminder → … → Disable workflow). Takes effect immediately; no redeploy needed.
+2. **Delete or comment out** the `schedule:` block in `.github/workflows/ssa-daily-booking-reminder.yml` and push.
+3. **Remove `SSA_CRON_SECRET`** from DigitalOcean env vars; the endpoint will return 500 and the workflow will fail without sending.
 
 #### Notification preference note
 
