@@ -15,6 +15,7 @@ RUN apt-get update -y \
         libicu-dev \
         zlib1g-dev \
         libxml2-dev \
+        libcurl4-openssl-dev \
         git \
         unzip \
         curl \
@@ -33,6 +34,7 @@ RUN pecl install xdebug \
     && docker-php-ext-enable xdebug
 
 RUN docker-php-ext-install zip
+RUN docker-php-ext-install curl
 RUN docker-php-ext-configure intl && docker-php-ext-install intl
 RUN docker-php-ext-install mysqli && docker-php-ext-enable mysqli
 RUN docker-php-ext-configure sodium && docker-php-ext-install sodium
