@@ -49,6 +49,36 @@ The `.p8` private key can be supplied as raw text via `APNS_KEY_P8` or as base64
 
 The push sender requires PHP cURL support for APNs HTTP/2 requests. The Docker image installs and enables the PHP cURL extension.
 
+### SSA daily My Bookings reminder scheduled job
+
+The Stage 4 daily reminder sender lives in the app submodule at `tools/ssa_daily_booking_reminder.php`.
+
+It sends at most one combined push per linked user per day when that user has table bookings for the current Europe/London date. It uses APNs tokens from `ssa_push_tokens`, writes idempotency rows to `ssa_push_notification_log`, and never logs full APNs tokens or private keys.
+
+Manual dry-run examples:
+
+```bash
+php tools/ssa_daily_booking_reminder.php --dry-run --force
+php tools/ssa_daily_booking_reminder.php --dry-run --uid=123 --force
+```
+
+First live test must stay single-user only:
+
+```bash
+php tools/ssa_daily_booking_reminder.php --uid=123 --force
+```
+
+Do not enable broadcast/scheduled sending until the dry-run and `uid=123` live device test have passed.
+
+The script has an internal Europe/London 08:00 guard. Use `--force` only for manual testing. For DigitalOcean Scheduled Jobs, use either:
+
+- two UTC runs, `07:00 UTC` and `08:00 UTC`, letting the Europe/London guard choose the valid DST/non-DST run; or
+- an hourly morning-window run, again relying on the Europe/London guard.
+
+Idempotency key: `(uid, rule_key, notification_date)` with rule key `daily_booking_reminders_8am`, so repeated scheduled runs do not duplicate sends.
+
+Notification preference note: the iOS category preferences currently persist locally on-device. Backend preference sync is still required before the backend can enforce `daily_booking_reminders` or the other category keys for scheduled/event pushes.
+
 ## contribute
 
 This repository is work in progress, please open a PR if you have improvements. The Dockerfile could definitely get optimized.
