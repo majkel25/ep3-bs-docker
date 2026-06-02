@@ -29,6 +29,26 @@ Run mysql client:
 
 - `docker-compose exec db mysql -u root -p` 
 
+### SSA iOS APNs push configuration
+
+The SSA API push sender reads APNs credentials from environment variables only. Do not hardcode Apple credentials in the repository.
+
+Required variables:
+
+- `APNS_TEAM_ID`
+- `APNS_KEY_ID`
+- `APNS_TOPIC`
+- `APNS_DEFAULT_ENV` (`development` or `production`)
+- `APNS_KEY_P8_BASE64` preferred, or `APNS_KEY_P8`
+
+Optional debug/testing flag:
+
+- `SSA_ENABLE_DEBUG_PUSH_ENDPOINT=true` enables the authenticated current-user-only debug push endpoint at `/api/ssa/v1/push-test-booking-reminder.php`.
+
+The `.p8` private key can be supplied as raw text via `APNS_KEY_P8` or as base64 via `APNS_KEY_P8_BASE64`; base64 is preferred for hosted environments that do not handle multiline secrets reliably.
+
+The push sender requires PHP cURL support for APNs HTTP/2 requests. The Docker image installs and enables the PHP cURL extension.
+
 ## contribute
 
 This repository is work in progress, please open a PR if you have improvements. The Dockerfile could definitely get optimized.
