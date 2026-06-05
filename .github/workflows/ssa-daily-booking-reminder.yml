@@ -74,3 +74,25 @@ jobs:
             echo "ERROR: endpoint returned HTTP ${HTTP_STATUS}"
             exit 1
           fi
+
+          if ! jq -e '.' response.json > /dev/null 2>&1; then
+            echo "ERROR: Backend returned non-JSON response (PHP fatal error?):"
+            head -c 500 response.json
+            exit 1
+          fi
+
+          BACKEND_STATUS=$(jq -r '.status // "unknown"' response.json)
+          SKIPPED_REASON=$(jq -r '.skippedReason // ""' response.json)
+          echo "Backend status:  ${BACKEND_STATUS}"
+          echo "dryRun:          $(jq -r '.dryRun // ""' response.json)"
+          echo "forced:          $(jq -r '.forced // ""' response.json)"
+          echo "localTime:       $(jq -r '.localTime // ""' response.json)"
+          echo "eligibleUsers:   $(jq -r '.eligibleUserCount // ""' response.json)"
+          echo "processed:       $(jq -r '(.processed | length) // ""' response.json)"
+          [ -n "$SKIPPED_REASON" ] && echo "skippedReason:   ${SKIPPED_REASON}"
+
+          if [ "$BACKEND_STATUS" != "ok" ] && [ "$BACKEND_STATUS" != "skipped" ]; then
+            echo "ERROR: Backend returned unexpected status: ${BACKEND_STATUS}"
+            jq -r '.error // .message // "no details"' response.json
+            exit 1
+          fi
