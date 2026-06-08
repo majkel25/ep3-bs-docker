@@ -9,7 +9,10 @@ name: SSA Daily Booking Reminder
 on:
   schedule:
     - cron: "0 7 * * *"
+    - cron: "30 7 * * *"
     - cron: "0 8 * * *"
+    - cron: "30 8 * * *"
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
