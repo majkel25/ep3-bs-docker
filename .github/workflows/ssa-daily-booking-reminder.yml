@@ -1,15 +1,16 @@
 name: SSA Daily Booking Reminder
 
-# Fires at 07:00 UTC and 08:00 UTC every day.
-# 07:00 UTC = 08:00 UK time during BST (Mar–Oct).
-# 08:00 UTC = 08:00 UK time during GMT (Oct–Mar).
-# The backend script's Europe/London hour guard decides which run is active;
-# the other exits cleanly without sending. Booking-signature idempotency
-# prevents duplicate sends if both somehow pass during a DST transition.
+# Runs every 30 minutes between UTC 05:00 and 22:00.
+# During BST (Mar–Oct): UTC 05:00 = 06:00 UK time.
+# During GMT (Oct–Mar): UTC 06:00 = 06:00 UK time.
+# The backend Europe/London guard (06:00–22:00) decides whether each run is
+# active; runs outside the local window return status=skipped cleanly.
+# Booking-signature idempotency (INSERT IGNORE on uid+rule_key+date+sig)
+# ensures only the first eligible run per day sends a push — later runs in
+# the same window return already_sent_or_reserved_for_rule_date.
 on:
   schedule:
-    - cron: "0 7 * * *"
-    - cron: "0 8 * * *"
+    - cron: "*/30 5-22 * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -25,7 +26,7 @@ on:
         required: false
         default: ""
       force:
-        description: "Bypass Europe/London 08:00 time guard (manual testing only)"
+        description: "Bypass Europe/London 06:00-22:00 time guard (manual testing only)"
         required: false
         default: "false"
         type: choice
@@ -54,6 +55,7 @@ jobs:
           BODY="${BODY},\"force\":${FORCE}}"
 
           echo "body=${BODY}" >> "$GITHUB_OUTPUT"
+          echo "Request body: ${BODY}"
 
       - name: POST to daily booking reminder endpoint
         run: |
@@ -67,32 +69,59 @@ jobs:
             "https://ssabookings-api-development-iuenr.ondigitalocean.app/api/ssa/v1/run-daily-booking-reminders.php")
 
           echo "HTTP status: ${HTTP_STATUS}"
-          echo "Response:"
+          echo "Response body:"
           cat response.json
+          echo ""
 
+          # Fail on non-2xx HTTP.
           if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
             echo "ERROR: endpoint returned HTTP ${HTTP_STATUS}"
             exit 1
           fi
 
+          # Fail if response is not valid JSON.
           if ! jq -e '.' response.json > /dev/null 2>&1; then
             echo "ERROR: Backend returned non-JSON response (PHP fatal error?):"
             head -c 500 response.json
             exit 1
           fi
 
+          # Parse and print key fields.
           BACKEND_STATUS=$(jq -r '.status // "unknown"' response.json)
           SKIPPED_REASON=$(jq -r '.skippedReason // ""' response.json)
-          echo "Backend status:  ${BACKEND_STATUS}"
-          echo "dryRun:          $(jq -r '.dryRun // ""' response.json)"
-          echo "forced:          $(jq -r '.forced // ""' response.json)"
-          echo "localTime:       $(jq -r '.localTime // ""' response.json)"
-          echo "eligibleUsers:   $(jq -r '.eligibleUserCount // ""' response.json)"
-          echo "processed:       $(jq -r '(.processed | length) // ""' response.json)"
-          [ -n "$SKIPPED_REASON" ] && echo "skippedReason:   ${SKIPPED_REASON}"
+          LOCAL_TIME=$(jq -r '.localTime // ""' response.json)
+          ALLOWED_WINDOW=$(jq -r '.allowedWindow // ""' response.json)
+          DRY_RUN_FLAG=$(jq -r '.dryRun // ""' response.json)
+          FORCED_FLAG=$(jq -r '.forced // ""' response.json)
+          ELIGIBLE=$(jq -r '.eligibleUserCount // ""' response.json)
+          PROCESSED=$(jq -r '(.processed | length) // 0' response.json)
+          SENT=$(jq -r '[.processed[]? | select(.sent == true)] | length' response.json)
+          ALREADY_SENT=$(jq -r '[.processed[]? | select(.skippedReason == "already_sent_or_reserved_for_rule_date")] | length' response.json)
+          NO_TOKEN=$(jq -r '[.processed[]? | select(.skippedReason == "no_enabled_ios_tokens")] | length' response.json)
+          PREF_OFF=$(jq -r '[.processed[]? | select(.skippedReason == "preference_disabled")] | length' response.json)
+          DRY_SKIP=$(jq -r '[.processed[]? | select(.skippedReason == "dry_run")] | length' response.json)
 
-          if [ "$BACKEND_STATUS" != "ok" ] && [ "$BACKEND_STATUS" != "skipped" ]; then
-            echo "ERROR: Backend returned unexpected status: ${BACKEND_STATUS}"
+          echo "---"
+          echo "status:          ${BACKEND_STATUS}"
+          [ -n "$SKIPPED_REASON" ]   && echo "skippedReason:   ${SKIPPED_REASON}"
+          [ -n "$ALLOWED_WINDOW" ]   && echo "allowedWindow:   ${ALLOWED_WINDOW}"
+          [ -n "$LOCAL_TIME" ]       && echo "localTime:       ${LOCAL_TIME}"
+          [ -n "$DRY_RUN_FLAG" ]     && echo "dryRun:          ${DRY_RUN_FLAG}"
+          [ -n "$FORCED_FLAG" ]      && echo "forced:          ${FORCED_FLAG}"
+          [ -n "$ELIGIBLE" ]         && echo "eligibleUsers:   ${ELIGIBLE}"
+          echo "processed:       ${PROCESSED}"
+          echo "sent:            ${SENT}"
+          echo "alreadySent:     ${ALREADY_SENT}"
+          echo "noToken:         ${NO_TOKEN}"
+          echo "preferenceOff:   ${PREF_OFF}"
+          [ "$DRY_SKIP" != "0" ]     && echo "dryRunSkipped:   ${DRY_SKIP}"
+
+          # Fail only on error status.
+          if [ "$BACKEND_STATUS" = "error" ]; then
+            echo "ERROR: Backend returned status=error"
             jq -r '.error // .message // "no details"' response.json
             exit 1
           fi
+
+          echo "---"
+          echo "Run complete. status=${BACKEND_STATUS}"
