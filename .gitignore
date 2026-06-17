@@ -1,2 +1,7 @@
 volumes/
 .env
+
+# Import data — never commit
+*.xlsx
+*.xls
+scripts/vendor/
